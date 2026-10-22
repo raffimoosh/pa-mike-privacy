@@ -1,0 +1,186 @@
+// Data model for the Postgres store. Mirrors src/domain/types.ts one-to-one so
+// the in-memory store can be swapped for a Prisma-backed Store implementation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  paymentLeadDays Int      @default(3)
+  checkingBuffer  Int      @default(10000) // cents
+  createdAt       DateTime @default(now())
+
+  accounts     Account[]
+  transactions CardTransaction[]
+  holds        Hold[]
+  transfers    Transfer[]
+  payments     Payment[]
+  events       DomainEvent[]
+}
+
+enum AccountKind {
+  CHECKING
+  CREDIT_CARD
+  HOLDING
+}
+
+model Account {
+  id                String      @id @default(uuid())
+  userId            String
+  kind              AccountKind
+  providerAccountId String
+  name              String
+  mask              String      @default("")
+  syncCursor        String?
+
+  // Latest statement (credit cards only)
+  statementIssueDate     String?
+  statementBalance       Int?
+  statementMinimumPayment Int?
+  statementDueDate       String?
+
+  user         User              @relation(fields: [userId], references: [id])
+  transactions CardTransaction[]
+  holds        Hold[]
+  payments     Payment[]
+
+  @@unique([userId, providerAccountId])
+  @@index([userId, kind])
+}
+
+enum CardTransactionStatus {
+  PENDING
+  POSTED
+  REMOVED
+}
+
+model CardTransaction {
+  id                   String                @id @default(uuid())
+  userId               String
+  cardAccountId        String
+  providerTxnId        String
+  providerPendingTxnId String?
+  amount               Int // cents, negative = credit
+  status               CardTransactionStatus
+  date                 String // YYYY-MM-DD
+  merchant             String
+
+  user  User    @relation(fields: [userId], references: [id])
+  card  Account @relation(fields: [cardAccountId], references: [id])
+  holds Hold[]
+
+  @@unique([cardAccountId, providerTxnId])
+}
+
+enum HoldStatus {
+  PENDING
+  FUNDED
+  APPLIED
+  RELEASED
+  CANCELLED
+}
+
+model Hold {
+  id                String     @id @default(uuid())
+  userId            String
+  cardAccountId     String
+  cardTransactionId String
+  amount            Int
+  status            HoldStatus
+  txnDate           String
+  transferId        String?
+  paymentId         String?
+  releaseTransferId String?
+  createdAt         DateTime   @default(now())
+
+  user        User            @relation(fields: [userId], references: [id])
+  card        Account         @relation(fields: [cardAccountId], references: [id])
+  transaction CardTransaction @relation(fields: [cardTransactionId], references: [id])
+  transfer    Transfer?       @relation("FundingTransfer", fields: [transferId], references: [id])
+  release     Transfer?       @relation("ReleaseTransfer", fields: [releaseTransferId], references: [id])
+  payment     Payment?        @relation(fields: [paymentId], references: [id])
+
+  @@index([userId, status])
+  @@index([cardAccountId, status, txnDate])
+}
+
+enum TransferKind {
+  FUND
+  PAY_CARD
+  RELEASE
+}
+
+enum TransferStatus {
+  PENDING
+  SETTLED
+  FAILED
+  RETURNED
+}
+
+model Transfer {
+  id                 String         @id @default(uuid())
+  userId             String
+  kind               TransferKind
+  amount             Int
+  status             TransferStatus
+  fromAccountId      String
+  toAccountId        String
+  providerTransferId String?        @unique
+  createdAt          DateTime       @default(now())
+  settledAt          DateTime?
+  failureReason      String?
+
+  user          User     @relation(fields: [userId], references: [id])
+  fundedHolds   Hold[]   @relation("FundingTransfer")
+  releasedHolds Hold[]   @relation("ReleaseTransfer")
+  payment       Payment?
+
+  @@index([userId, status])
+}
+
+enum PaymentStatus {
+  SCHEDULED
+  INITIATED
+  PAID
+}
+
+model Payment {
+  id                 String        @id @default(uuid())
+  userId             String
+  cardAccountId      String
+  statementIssueDate String
+  statementBalance   Int
+  minimumPayment     Int
+  dueDate            String
+  scheduledDate      String
+  status             PaymentStatus
+  amount             Int?
+  transferId         String?       @unique
+
+  user     User      @relation(fields: [userId], references: [id])
+  card     Account   @relation(fields: [cardAccountId], references: [id])
+  transfer Transfer? @relation(fields: [transferId], references: [id])
+  holds    Hold[]
+
+  @@unique([cardAccountId, statementIssueDate])
+  @@index([userId, status, scheduledDate])
+}
+
+model DomainEvent {
+  id     String   @id @default(uuid())
+  userId String
+  type   String
+  at     DateTime @default(now())
+  data   Json
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, at])
+}
