@@ -38,7 +38,13 @@ model Account {
   providerAccountId String
   name              String
   mask              String      @default("")
+  providerRefs      Json?
   syncCursor        String?
+
+  // Fallback statement cycle (credit cards only, when the provider has no statement data)
+  statementCloseDay        Int?
+  statementDueDay          Int?
+  statementMinimumPayment  Int?
 
   // Latest statement (credit cards only)
   statementIssueDate     String?

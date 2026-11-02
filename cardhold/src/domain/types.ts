@@ -25,6 +25,20 @@ export interface CardStatement {
   dueDate: ISODate;
 }
 
+/**
+ * When the bank data provider cannot report statements (Stripe Financial
+ * Connections has no liabilities data), the user tells us the card's cycle and
+ * we derive the statement from the transactions we have seen.
+ */
+export interface StatementSchedule {
+  /** Day of month the statement closes (1-31, clamped to month length). */
+  closeDay: number;
+  /** Day of month the payment is due (1-31, clamped). First occurrence after the close date. */
+  dueDay: number;
+  /** Issuer minimum payment, if the user wants shortfall warnings against it. */
+  minimumPayment?: Cents;
+}
+
 export interface Account {
   id: string;
   userId: string;
@@ -33,8 +47,12 @@ export interface Account {
   providerAccountId: string;
   name: string;
   mask: string;
+  /** Extra provider identifiers (e.g. Stripe customer / payment method / payout recipient ids). */
+  providerRefs?: Record<string, string>;
   /** Latest statement from the issuer. Credit cards only. */
   statement?: CardStatement;
+  /** Fallback statement cycle when the provider has no statement data. Credit cards only. */
+  statementSchedule?: StatementSchedule;
   /** Aggregator sync cursor. Credit cards only. */
   syncCursor?: string;
 }

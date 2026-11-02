@@ -4,5 +4,7 @@ export * from "./domain/dates.js";
 export * from "./domain/clock.js";
 export * from "./domain/store.js";
 export * from "./domain/engine.js";
+export * from "./domain/statement.js";
 export * from "./providers/bank-data.js";
 export * from "./providers/money-movement.js";
+export * from "./providers/stripe/index.js";

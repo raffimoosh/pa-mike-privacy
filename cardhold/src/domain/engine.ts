@@ -5,12 +5,14 @@ import type { MoneyMovementProvider } from "../providers/money-movement.js";
 import { nowISO, todayISO, type Clock } from "./clock.js";
 import { addDays, compareDates, maxDate } from "./dates.js";
 import { sumAmounts, type Cents } from "./money.js";
+import { deriveStatement } from "./statement.js";
 import type {
   Account,
   AccountKind,
   CardTransaction,
   Hold,
   Payment,
+  StatementSchedule,
   Transfer,
   TransferKind,
   User,
@@ -89,7 +91,14 @@ export async function createUser(deps: EngineDeps, email: string, settings: Part
 export async function linkAccount(
   deps: EngineDeps,
   userId: string,
-  input: { kind: "CHECKING" | "CREDIT_CARD"; providerAccountId: string; name: string; mask: string },
+  input: {
+    kind: "CHECKING" | "CREDIT_CARD";
+    providerAccountId: string;
+    name: string;
+    mask: string;
+    providerRefs?: Record<string, string>;
+    statementSchedule?: StatementSchedule;
+  },
 ): Promise<Account> {
   await requireUser(deps.store, userId);
   const account: Account = { id: randomUUID(), userId, ...input };
@@ -417,11 +426,17 @@ export async function runDailySweep(deps: EngineDeps, userId: string): Promise<T
 // 4. Statements and payment scheduling
 // ---------------------------------------------------------------------------
 
-/** Refresh the card's statement from the issuer and schedule a payment for it if needed. */
+/**
+ * Refresh the card's statement and schedule a payment for it if needed.
+ * Prefers issuer data from the provider; falls back to a statement derived
+ * from our own transaction history when the card has a configured schedule.
+ */
 export async function syncCardStatement(deps: EngineDeps, cardAccountId: string): Promise<Payment | undefined> {
   const { store } = deps;
   const card = await requireAccount(store, cardAccountId, "CREDIT_CARD");
-  const liability = await deps.bankData.getCardLiability(card.providerAccountId);
+  const liability =
+    (await deps.bankData.getCardLiability(card.providerAccountId)) ??
+    (await deriveStatement(store, card, todayISO(deps.clock)));
   if (!liability) return undefined;
 
   card.statement = {
